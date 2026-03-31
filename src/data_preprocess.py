@@ -47,7 +47,8 @@ def tokenize_and_chunk(examples, tokenizer):
 def main():
     print("1. Loading CodeSearchNet (Python subset) debug sample...")
     # Using a 1% split for local debugging. Change to split="train" for cloud execution.
-    raw_datasets = load_dataset("code_search_net", "python", split="train[:1%]")
+    # raw_datasets = load_dataset("code_search_net", "python", split="train[:1%]")
+    raw_datasets = load_dataset("code_search_net", "python", split="train")
     
     print("2. Loading GPT-2 BPE Tokenizer...")
     tokenizer = AutoTokenizer.from_pretrained(MODEL_CHECKPOINT)
