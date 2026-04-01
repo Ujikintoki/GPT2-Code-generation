@@ -80,7 +80,7 @@ def main():
         learning_rate=args.learning_rate,
         weight_decay=0.01,                 # 引入权重衰减防止过拟合
         fp16=fp16_enabled,                 
-        evaluation_strategy="epoch",       # 每个 epoch 结束后在 eval_dataset 上评估一次
+        # evaluation_strategy="epoch",       # 每个 epoch 结束后在 eval_dataset 上评估一次
         save_strategy="epoch",             # 每个 epoch 保存一次 Checkpoint
         logging_steps=10,                  # 每 10 步打印一次日志
         load_best_model_at_end=True,       # 训练结束后自动加载验证集 Loss 最低的模型
