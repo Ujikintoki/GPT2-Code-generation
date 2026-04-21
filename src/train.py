@@ -1,50 +1,76 @@
-import os
-import math
 import argparse
+import math
+import os
+
 import torch
 from datasets import load_from_disk
 from transformers import (
     AutoModelForCausalLM,
     AutoTokenizer,
+    DataCollatorForLanguageModeling,
     Trainer,
     TrainingArguments,
-    DataCollatorForLanguageModeling,
-    set_seed
+    set_seed,
 )
 
+
 def parse_args():
-    parser = argparse.ArgumentParser(description="Fine-tune GPT-2 for Python Code Generation")
-    
+    parser = argparse.ArgumentParser(
+        description="Fine-tune GPT-2 for Python Code Generation"
+    )
+
     # 动态获取项目根目录
     project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     default_data_path = os.path.join(project_root, "data", "processed", "debug_sample")
     default_output_dir = os.path.join(project_root, "models", "checkpoints")
 
     # 数据与路径参数
-    parser.add_argument("--data_path", type=str, default=default_data_path, help="Path to the processed dataset")
-    parser.add_argument("--output_dir", type=str, default=default_output_dir, help="Directory to save model checkpoints")
-    
+    parser.add_argument(
+        "--data_path",
+        type=str,
+        default=default_data_path,
+        help="Path to the processed dataset",
+    )
+    parser.add_argument(
+        "--output_dir",
+        type=str,
+        default=default_output_dir,
+        help="Directory to save model checkpoints",
+    )
+
     # 消融实验核心参数：使用多大比例的数据进行训练 (1.0 = 100%, 0.5 = 50%, 0.1 = 10%)
-    parser.add_argument("--data_fraction", type=float, default=1.0, help="Fraction of data to use for training (for scaling law ablation)")
-    
+    parser.add_argument(
+        "--data_fraction",
+        type=float,
+        default=1.0,
+        help="Fraction of data to use for training (for scaling law ablation)",
+    )
+
     # 训练超参数
-    parser.add_argument("--epochs", type=int, default=3, help="Number of training epochs")
-    parser.add_argument("--batch_size", type=int, default=8, help="Training batch size per device")
-    parser.add_argument("--learning_rate", type=float, default=5e-5, help="Learning rate")
-    
+    parser.add_argument(
+        "--epochs", type=int, default=3, help="Number of training epochs"
+    )
+    parser.add_argument(
+        "--batch_size", type=int, default=8, help="Training batch size per device"
+    )
+    parser.add_argument(
+        "--learning_rate", type=float, default=5e-5, help="Learning rate"
+    )
+
     return parser.parse_args()
+
 
 def main():
     args = parse_args()
     set_seed(42)
 
-    print(f"Starting training pipeline...")
+    print("Starting training pipeline...")
     print(f"Ablation Setting: Using {args.data_fraction * 100}% of the dataset.")
 
     # 1. 加载数据与分词器
     print(f"Loading dataset from {args.data_path}...")
     dataset = load_from_disk(args.data_path)
-    
+
     tokenizer = AutoTokenizer.from_pretrained("gpt2")
     tokenizer.pad_token = tokenizer.eos_token
 
@@ -69,7 +95,7 @@ def main():
 
     # 4. 配置训练参数 (兼容本地 Mac CPU/MPS 和云端 T4 GPU)
     # 自动检测是否在具备 CUDA (Colab GPU) 的环境中，如果是，开启 fp16 混合精度训练以节省一半显存
-    fp16_enabled = torch.cuda.is_available() 
+    fp16_enabled = torch.cuda.is_available()
 
     training_args = TrainingArguments(
         output_dir=args.output_dir,
@@ -78,14 +104,14 @@ def main():
         per_device_train_batch_size=args.batch_size,
         per_device_eval_batch_size=args.batch_size,
         learning_rate=args.learning_rate,
-        #weight_decay=0.01,                 # 引入权重衰减防止过拟合
-        #fp16=fp16_enabled,                 
-        #eval_strategy="epoch",       # 每个 epoch 结束后在 eval_dataset 上评估一次
-        #save_strategy="epoch",             # 每个 epoch 保存一次 Checkpoint
-        #logging_steps=10,                  # 每 10 步打印一次日志
-        load_best_model_at_end= False,       # 训练结束后自动加载验证集 Loss 最低的模型
-        #metric_for_best_model="loss",
-        #report_to="none"                   # 本地测试时关闭 W&B 避免弹窗提示
+        # weight_decay=0.01,                 # 引入权重衰减防止过拟合
+        # fp16=fp16_enabled,
+        # eval_strategy="epoch",       # 每个 epoch 结束后在 eval_dataset 上评估一次
+        # save_strategy="epoch",             # 每个 epoch 保存一次 Checkpoint
+        # logging_steps=10,                  # 每 10 步打印一次日志
+        load_best_model_at_end=False,  # 训练结束后自动加载验证集 Loss 最低的模型
+        # metric_for_best_model="loss",
+        # report_to="none"                   # 本地测试时关闭 W&B 避免弹窗提示
     )
 
     # 5. 初始化 Trainer 并启动训练
@@ -106,8 +132,8 @@ def main():
         perplexity = math.exp(eval_results["eval_loss"])
     except OverflowError:
         perplexity = float("inf")
-    
-    print(f"\nTraining Complete!")
+
+    print("\nTraining Complete!")
     print(f"Final Evaluation Loss: {eval_results['eval_loss']:.4f}")
     print(f"Final Perplexity (PPL): {perplexity:.4f}")
 
@@ -116,6 +142,7 @@ def main():
     trainer.save_model(final_save_path)
     tokenizer.save_pretrained(final_save_path)
     print(f"Final model safely stored at: {final_save_path}")
+
 
 if __name__ == "__main__":
     main()
