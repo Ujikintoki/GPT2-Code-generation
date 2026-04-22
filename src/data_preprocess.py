@@ -68,7 +68,7 @@ def main():
 
     print("4. Saving processed debug data to local disk...")
     os.makedirs(OUTPUT_DIR, exist_ok=True)
-    save_path = os.path.join(OUTPUT_DIR, "debug_sample")
+    save_path = os.path.join(OUTPUT_DIR, "train_data_half")
     lm_datasets.save_to_disk(save_path)
     print(f"Data successfully saved to: {save_path}")
 
