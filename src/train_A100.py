@@ -1,4 +1,3 @@
-%%writefile /content/drive/MyDrive/GPT2-Code-generation/src/train_A100.py
 import os
 import math
 import argparse
