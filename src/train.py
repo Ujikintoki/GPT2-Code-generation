@@ -93,25 +93,25 @@ def main():
     # DataCollator 负责将数据打包成 Batch。mlm=False 表示这是因果语言建模（预测下一个词），而非掩码语言建模（如 BERT）
     data_collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
 
-    # 4. 配置训练参数 (兼容本地 Mac CPU/MPS 和云端 T4 GPU)
-    # 自动检测是否在具备 CUDA (Colab GPU) 的环境中，如果是，开启 fp16 混合精度训练以节省一半显存
-    fp16_enabled = torch.cuda.is_available()
+    # 4. 配置训练参数
+    # 你们抽到了顶配的 A100 显卡，A100 原生支持比 fp16 更先进、更稳定的 bf16 (BFloat16)
+    # 所以我们这里直接启用 bf16 来加速训练并节省一半显存
+    use_bf16 = torch.cuda.is_available()
 
     training_args = TrainingArguments(
         output_dir=args.output_dir,
-        # overwrite_output_dir=True,
         num_train_epochs=args.epochs,
         per_device_train_batch_size=args.batch_size,
         per_device_eval_batch_size=args.batch_size,
         learning_rate=args.learning_rate,
-        # weight_decay=0.01,                 # 引入权重衰减防止过拟合
-        # fp16=fp16_enabled,
-        # eval_strategy="epoch",       # 每个 epoch 结束后在 eval_dataset 上评估一次
-        # save_strategy="epoch",             # 每个 epoch 保存一次 Checkpoint
-        # logging_steps=10,                  # 每 10 步打印一次日志
-        load_best_model_at_end=False,  # 训练结束后自动加载验证集 Loss 最低的模型
-        # metric_for_best_model="loss",
-        # report_to="none"                   # 本地测试时关闭 W&B 避免弹窗提示
+        weight_decay=0.01,  # 恢复：防止模型死记硬背（过拟合）
+        bf16=use_bf16,  # 升级：A100 专属加速，比 fp16 更不容易出现 Loss 爆炸
+        evaluation_strategy="epoch",  # 修复：使用全拼形式兼容所有版本，每个 epoch 评估一次
+        save_strategy="epoch",  # 修复：必须与 evaluation_strategy 保持一致
+        logging_steps=10,  # 恢复：让终端有进度输出
+        load_best_model_at_end=True,  # 恢复：既然有保存和评估，就可以让它自动挑 Loss 最低的
+        metric_for_best_model="eval_loss",  # 修复：明确告诉它看验证集的 Loss
+        report_to="none",
     )
 
     # 5. 初始化 Trainer 并启动训练
