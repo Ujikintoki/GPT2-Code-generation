@@ -137,7 +137,7 @@ def main() -> None:
         learning_rate=args.lr,
         weight_decay=0.01,
         fp16=use_fp16,
-        eval_strategy="epoch",  # <--- 已修复为最新版 API 规范
+        eval_strategy="epoch",
         save_strategy="epoch",
         load_best_model_at_end=True,
         metric_for_best_model="eval_loss",
