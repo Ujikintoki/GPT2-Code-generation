@@ -20,6 +20,7 @@ def parse_args():
     parser.add_argument("--epochs", type=int, default=3, help="Training epochs")
     parser.add_argument("--batch_size", type=int, default=16, help="Batch size per device")
     parser.add_argument("--learning_rate", type=float, default=5e-5, help="Learning rate")
+    parser.add_argument("--model_name", type=str, default="gpt2", help="Model name: gpt2, distilgpt2, gpt2-medium")
     return parser.parse_args()
 
 def main():
@@ -27,44 +28,39 @@ def main():
     set_seed(42)
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
-    # ========== Load Dataset ==========
     print(f"Loading dataset from {args.data_path}")
     lm_datasets = load_from_disk(args.data_path)
 
-    # Sample data fraction
     if args.data_fraction < 1.0:
         lm_datasets = lm_datasets.select(range(int(len(lm_datasets) * args.data_fraction)))
 
-    # Split 10% as validation
     lm_datasets = lm_datasets.train_test_split(test_size=0.1, seed=42)
     train_dataset = lm_datasets["train"]
     val_dataset = lm_datasets["test"]
 
     print(f"Train size: {len(train_dataset)}, Val size: {len(val_dataset)}")
 
-    # ========== Tokenizer & Model ==========
-    tokenizer = AutoTokenizer.from_pretrained("gpt2")
+    print(f"Loading model: {args.model_name}")
+    tokenizer = AutoTokenizer.from_pretrained(args.model_name)
     tokenizer.pad_token = tokenizer.eos_token
 
-    model = AutoModelForCausalLM.from_pretrained("gpt2")
+    model = AutoModelForCausalLM.from_pretrained(args.model_name)
     model = model.to(device)
 
     data_collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
 
-    # ========== A100 超级加速参数 ==========
+    # ========== 已修复所有参数错误 ==========
     training_args = TrainingArguments(
         output_dir=args.output_dir,
-        overwrite_output_dir=True,
         num_train_epochs=args.epochs,
         per_device_train_batch_size=args.batch_size,
         per_device_eval_batch_size=args.batch_size,
-        gradient_accumulation_steps=2,         # A100 必备
+        gradient_accumulation_steps=2,
         learning_rate=args.learning_rate,
         weight_decay=0.01,
-        fp16=True,                             # A100 半精度加速
-        fp16_opt_level="O3",
-        optim="adamw_torch_fused",              # A100 融合优化器
-        evaluation_strategy="epoch",
+        fp16=True,
+        optim="adamw_torch_fused",
+        eval_strategy="epoch",  # 已修正
         save_strategy="epoch",
         save_total_limit=2,
         load_best_model_at_end=True,
@@ -72,7 +68,6 @@ def main():
         report_to="none",
     )
 
-    # ========== Trainer ==========
     trainer = Trainer(
         model=model,
         args=training_args,
@@ -81,10 +76,8 @@ def main():
         data_collator=data_collator
     )
 
-    # ========== Train ==========
     trainer.train()
 
-    # ========== Evaluate Perplexity ==========
     eval_results = trainer.evaluate()
     print(f"Validation Loss: {eval_results['eval_loss']}")
     try:
@@ -93,7 +86,6 @@ def main():
     except OverflowError:
         print("Perplexity inf (loss too high)")
 
-    # ========== Save Final Model ==========
     final_model_path = os.path.join(args.output_dir, "final-model")
     model.save_pretrained(final_model_path)
     tokenizer.save_pretrained(final_model_path)
