@@ -1,6 +1,17 @@
+"""
+Domain-Adaptive Fine-Tuning of Causal Language Models.
+
+This script executes the fine-tuning of GPT-family models on a Python code dataset.
+It serves as a unified entry point, dynamically adjusting training hyperparameters
+and optimizers based on the target hardware architecture (e.g., T4 vs. A100)
+to ensure optimal VRAM utilization and computational efficiency.
+"""
+
 import argparse
+import logging
 import math
 import os
+import sys
 
 import torch
 from datasets import load_from_disk
@@ -13,108 +24,186 @@ from transformers import (
     set_seed,
 )
 
+# Configure standard academic logging format
+logging.basicConfig(
+    format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+    level=logging.INFO,
+    stream=sys.stdout,
+)
+logger = logging.getLogger(__name__)
 
-def parse_args():
-    parser = argparse.ArgumentParser(
-        description="Fine-tune GPT-2 for Python Code Generation"
-    )
 
-    # 动态获取项目根目录
-    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    default_data_path = os.path.join(project_root, "data", "processed", "debug_sample")
-    default_output_dir = os.path.join(project_root, "models", "checkpoints")
+def parse_args() -> argparse.Namespace:
+    """Parse command-line arguments for unified training configuration."""
+    parser = argparse.ArgumentParser(description="Unified Causal LM Fine-Tuning")
 
-    # 数据与路径参数
+    # Path configurations
     parser.add_argument(
         "--data_path",
         type=str,
-        default=default_data_path,
-        help="Path to the processed dataset",
+        required=True,
+        help="Path to the processed Hugging Face dataset.",
     )
     parser.add_argument(
         "--output_dir",
         type=str,
-        default=default_output_dir,
-        help="Directory to save model checkpoints",
+        default="./models/checkpoints",
+        help="Directory to save intermediate checkpoints.",
+    )
+    parser.add_argument(
+        "--final_model_dir",
+        type=str,
+        default="./models/unified-model-final",
+        help="Directory to save the final model artifacts.",
     )
 
-    # 消融实验核心参数：使用多大比例的数据进行训练 (1.0 = 100%, 0.5 = 50%, 0.1 = 10%)
+    # Model and Hardware Configuration
+    parser.add_argument(
+        "--model_name",
+        type=str,
+        default="gpt2",
+        choices=["gpt2", "distilgpt2", "gpt2-medium"],
+        help="Base model architecture to initialize.",
+    )
+    parser.add_argument(
+        "--gpu_target",
+        type=str,
+        default="T4",
+        choices=["T4", "A100"],
+        help="Target hardware architecture for dynamic hyperparameter routing.",
+    )
+
+    # General Hyperparameters (Defaults act as a baseline, dynamically overridden)
+    parser.add_argument(
+        "--epochs", type=int, default=3, help="Total number of training epochs."
+    )
+    parser.add_argument(
+        "--batch_size",
+        type=int,
+        default=16,
+        help="Baseline batch size per device (may be overridden by gpu_target).",
+    )
+    parser.add_argument(
+        "--grad_accum",
+        type=int,
+        default=4,
+        help="Baseline gradient accumulation steps.",
+    )
+    parser.add_argument(
+        "--lr",
+        type=float,
+        default=5e-5,
+        help="Initial learning rate for the optimizer.",
+    )
     parser.add_argument(
         "--data_fraction",
         type=float,
         default=1.0,
-        help="Fraction of data to use for training (for scaling law ablation)",
-    )
-
-    # 训练超参数
-    parser.add_argument(
-        "--epochs", type=int, default=3, help="Number of training epochs"
+        help="Fraction of the dataset to use for ablation studies (0.0 to 1.0).",
     )
     parser.add_argument(
-        "--batch_size", type=int, default=8, help="Training batch size per device"
-    )
-    parser.add_argument(
-        "--learning_rate", type=float, default=5e-5, help="Learning rate"
+        "--seed", type=int, default=42, help="Random seed for reproducibility."
     )
 
     return parser.parse_args()
 
 
-def main():
+def configure_hardware_profile(args: argparse.Namespace) -> dict:
+    """
+    Dynamically route hardware-specific training arguments.
+
+    Args:
+        args: Parsed command-line arguments.
+
+    Returns:
+        dict: A dictionary of kwargs to pass to TrainingArguments.
+    """
+    profile = {}
+
+    if args.gpu_target == "A100":
+        logger.info("Applying A100 hardware profile: high throughput, fused optimizer.")
+        profile["per_device_train_batch_size"] = args.batch_size
+        profile["per_device_eval_batch_size"] = args.batch_size
+        profile["gradient_accumulation_steps"] = min(
+            2, args.grad_accum
+        )  # Reduce grad accum for A100
+        profile["optim"] = "adamw_torch_fused"
+        # A100 supports bfloat16, which is vastly superior for LLM training stability
+        profile["bf16"] = torch.cuda.is_bf16_supported()
+        profile["fp16"] = not profile["bf16"]
+    else:
+        logger.info("Applying T4 hardware profile: memory-constrained optimization.")
+        profile["per_device_train_batch_size"] = min(
+            8, args.batch_size
+        )  # Strict constraint
+        profile["per_device_eval_batch_size"] = min(8, args.batch_size)
+        profile["gradient_accumulation_steps"] = max(
+            4, args.grad_accum
+        )  # Ensure large effective batch size
+        profile["optim"] = "adamw_torch"
+        profile["fp16"] = torch.cuda.is_available()
+        profile["bf16"] = False
+
+    return profile
+
+
+def main() -> None:
     args = parse_args()
-    set_seed(42)
+    set_seed(args.seed)
 
-    print("Starting training pipeline...")
-    print(f"Ablation Setting: Using {args.data_fraction * 100}% of the dataset.")
+    logger.info("Initializing unified training pipeline.")
+    logger.info("Model: %s | Hardware Target: %s", args.model_name, args.gpu_target)
 
-    # 1. 加载数据与分词器
-    print(f"Loading dataset from {args.data_path}...")
-    dataset = load_from_disk(args.data_path)
+    # 1. Load and prepare dataset
+    logger.info("Loading dataset from %s", args.data_path)
+    try:
+        dataset = load_from_disk(args.data_path)
+    except Exception as e:
+        logger.error("Failed to load dataset: %s", str(e))
+        sys.exit(1)
 
-    tokenizer = AutoTokenizer.from_pretrained("gpt2")
-    tokenizer.pad_token = tokenizer.eos_token
-
-    # 2. 实施消融实验逻辑 (切分 Data Fraction) & 划分验证集
     if args.data_fraction < 1.0:
         subset_size = int(len(dataset) * args.data_fraction)
         dataset = dataset.select(range(subset_size))
-        print(f"Sliced dataset to {subset_size} samples for ablation study.")
+        logger.info("Dataset truncated to %d samples.", subset_size)
 
-    # 留出 10% 的数据作为验证集，用于在训练过程中计算真实的 Perplexity
-    split_dataset = dataset.train_test_split(test_size=0.1, seed=42)
+    split_dataset = dataset.train_test_split(test_size=0.1, seed=args.seed)
     train_dataset = split_dataset["train"]
     eval_dataset = split_dataset["test"]
-    print(f"Final Split -> Train: {len(train_dataset)} | Eval: {len(eval_dataset)}")
+    logger.info(
+        "Dataset split complete. Train size: %d, Eval size: %d",
+        len(train_dataset),
+        len(eval_dataset),
+    )
 
-    # 3. 加载模型与数据整理器 (Data Collator)
-    print("Loading GPT-2 model...")
-    model = AutoModelForCausalLM.from_pretrained("gpt2")
+    # 2. Initialize model and tokenizer
+    logger.info("Loading architecture: %s", args.model_name)
+    tokenizer = AutoTokenizer.from_pretrained(args.model_name)
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
 
-    # DataCollator 负责将数据打包成 Batch。mlm=False 表示这是因果语言建模（预测下一个词），而非掩码语言建模（如 BERT）
+    model = AutoModelForCausalLM.from_pretrained(args.model_name)
     data_collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
 
-    # 4. 配置训练参数
-    # 你们抽到了顶配的 A100 显卡，A100 原生支持比 fp16 更先进、更稳定的 bf16 (BFloat16)
-    # 所以我们这里直接启用 bf16 来加速训练并节省一半显存
-    use_bf16 = torch.cuda.is_available()
+    # 3. Dynamic Configuration of TrainingArguments
+    hw_profile_kwargs = configure_hardware_profile(args)
 
     training_args = TrainingArguments(
         output_dir=args.output_dir,
         num_train_epochs=args.epochs,
-        per_device_train_batch_size=args.batch_size,
-        per_device_eval_batch_size=args.batch_size,
-        learning_rate=args.learning_rate,
-        weight_decay=0.01,  # 恢复：防止模型死记硬背（过拟合）
-        bf16=use_bf16,  # 升级：A100 专属加速，比 fp16 更不容易出现 Loss 爆炸
-        evaluation_strategy="epoch",  # 修复：使用全拼形式兼容所有版本，每个 epoch 评估一次
-        save_strategy="epoch",  # 修复：必须与 evaluation_strategy 保持一致
-        logging_steps=10,  # 恢复：让终端有进度输出
-        load_best_model_at_end=True,  # 恢复：既然有保存和评估，就可以让它自动挑 Loss 最低的
-        metric_for_best_model="eval_loss",  # 修复：明确告诉它看验证集的 Loss
+        learning_rate=args.lr,
+        weight_decay=0.01,
+        eval_strategy="epoch",
+        save_strategy="epoch",
+        save_total_limit=2,
+        load_best_model_at_end=True,
+        metric_for_best_model="eval_loss",
+        logging_steps=10,
         report_to="none",
+        **hw_profile_kwargs,  # Inject hardware specific settings
     )
 
-    # 5. 初始化 Trainer 并启动训练
     trainer = Trainer(
         model=model,
         args=training_args,
@@ -123,25 +212,27 @@ def main():
         data_collator=data_collator,
     )
 
-    print("\nCommencing Fine-Tuning...")
+    # 4. Execute training process
+    logger.info("Commencing fine-tuning process.")
     trainer.train()
 
-    # 6. 计算最终的困惑度 (Perplexity) 并保存模型
+    # 5. Evaluate and log metrics internally
+    logger.info("Running final internal evaluation.")
     eval_results = trainer.evaluate()
+    loss = eval_results.get("eval_loss", float("inf"))
     try:
-        perplexity = math.exp(eval_results["eval_loss"])
+        ppl = math.exp(loss)
     except OverflowError:
-        perplexity = float("inf")
+        ppl = float("inf")
+    logger.info("Final Validation Loss: %.4f | Perplexity (PPL): %.2f", loss, ppl)
 
-    print("\nTraining Complete!")
-    print(f"Final Evaluation Loss: {eval_results['eval_loss']:.4f}")
-    print(f"Final Perplexity (PPL): {perplexity:.4f}")
-
-    # 将最终打磨好的模型权重保存到本地
-    final_save_path = os.path.join(args.output_dir, "gpt2-python-final")
-    trainer.save_model(final_save_path)
-    tokenizer.save_pretrained(final_save_path)
-    print(f"Final model safely stored at: {final_save_path}")
+    # 6. Save final artifacts
+    os.makedirs(args.final_model_dir, exist_ok=True)
+    trainer.save_model(args.final_model_dir)
+    tokenizer.save_pretrained(args.final_model_dir)
+    logger.info(
+        "Training pipeline complete. Artifacts saved to: %s", args.final_model_dir
+    )
 
 
 if __name__ == "__main__":
