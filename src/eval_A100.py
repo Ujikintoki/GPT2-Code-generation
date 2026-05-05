@@ -11,30 +11,32 @@ from transformers import (
 )
 
 def main():
-    parser = argparse.ArgumentParser(description="Evaluate trained GPT2 family models")
-    parser.add_argument("--model_path", type=str, required=True, help="Path to trained model")
-    parser.add_argument("--data_path", type=str, required=True, help="Path to processed dataset")
-    parser.add_argument("--batch_size", type=int, default=16)
-    parser.add_argument("--seed", type=int, default=42)
+    # Create argument parser for GPT2 model evaluation
+    parser = argparse.ArgumentParser(description="Evaluate the performance of pre-trained GPT2 language models")
+    parser.add_argument("--model_path", type=str, required=True, help="Local file path of the trained GPT2 model")
+    parser.add_argument("--data_path", type=str, required=True, help="Local file path of the processed test dataset")
+    parser.add_argument("--batch_size", type=int, default=16, help="Batch size for model evaluation inference")
     args = parser.parse_args()
 
-    # Load dataset
-    print(f"Loading dataset from {args.data_path}")
-    dataset = load_from_disk(args.data_path)
-    dataset = dataset.train_test_split(test_size=0.1, seed=args.seed)
-    test_dataset = dataset["test"]
+    # Load processed test dataset from local disk
+    print(f"Loading test dataset from local path: {args.data_path}")
+    test_dataset = load_from_disk(args.data_path)
 
-    # Load model & tokenizer
-    print(f"Loading model from {args.model_path}")
-    tokenizer = AutoTokenizer.from_pretrained(args.model_path)
+    # Load pre-trained model and tokenizer with local file only mode
+    print(f"Loading trained GPT2 model and tokenizer from local path: {args.model_path}")
+    tokenizer = AutoTokenizer.from_pretrained(args.model_path, local_files_only=True)
+    # Set pad token equal to eos token for GPT2 (no default pad token)
     tokenizer.pad_token = tokenizer.eos_token
-    model = AutoModelForCausalLM.from_pretrained(args.model_path)
 
+    # Load causal language model for GPT2
+    model = AutoModelForCausalLM.from_pretrained(args.model_path, local_files_only=True)
+
+    # Initialize data collator for causal language modeling (no masked language modeling)
     data_collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
 
-    # Eval arguments
-    eval_args = TrainingArguments(
-        output_dir="./eval_temp",
+    # Set clean and stable evaluation training arguments
+    evaluation_args = TrainingArguments(
+        output_dir="./evaluation_temp_output",
         per_device_eval_batch_size=args.batch_size,
         fp16=True if torch.cuda.is_available() else False,
         report_to="none",
@@ -42,24 +44,26 @@ def main():
         do_eval=True
     )
 
+    # Initialize Hugging Face Trainer for evaluation only
     trainer = Trainer(
         model=model,
-        args=eval_args,
+        args=evaluation_args,
         eval_dataset=test_dataset,
         data_collator=data_collator
     )
 
-    # Evaluate
-    results = trainer.evaluate()
-    eval_loss = results["eval_loss"]
-    perplexity = math.exp(eval_loss)
+    # Run model evaluation on test dataset
+    evaluation_results = trainer.evaluate()
+    test_loss = evaluation_results["eval_loss"]
+    # Calculate perplexity from evaluation loss
+    perplexity_score = math.exp(test_loss)
 
-    # Print academic-style table
+    # Print academic standard evaluation result table
     print("\n" + "="*60)
-    print(f"{'Metric':<30} | {'Value':<25}")
+    print(f"{'Evaluation Metric':<30} | {'Final Calculated Value':<25}")
     print("-"*60)
-    print(f"{'Test Loss':<30} | {eval_loss:<25.4f}")
-    print(f"{'Perplexity (PPL)':<30} | {perplexity:<25.2f}")
+    print(f"{'Test Set Loss':<30} | {test_loss:<25.4f}")
+    print(f"{'Perplexity (PPL)':<30} | {perplexity_score:<25.2f}")
     print("="*60 + "\n")
 
 if __name__ == "__main__":
