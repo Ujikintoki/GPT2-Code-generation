@@ -1,5 +1,22 @@
-transformers
-datasets
-evaluate
-torch
-accelerate
+# =========================================================
+# Domain-Adaptive Fine-Tuning of GPT-2 for Python Code Generation
+# =========================================================
+# Core ML/NLP execution environment. Install with:
+#
+#    pip install -r requirements.txt
+#
+# NOTE — PyTorch: the line below installs the *CPU-only* wheel by default.
+# For GPU acceleration you MUST install the CUDA variant manually
+# *before* running this file.
+# See https://pytorch.org/get-started/locally/
+#
+#   # Example for CUDA 11.8:
+#   pip install torch>=2.0.0 --index-url https://download.pytorch.org/whl/cu118
+#   pip install -r requirements.txt
+# ======================================================================
+
+torch>=2.0.0
+transformers>=4.30.0
+datasets>=2.14.0
+accelerate>=0.20.0
+evaluate>=0.4.0

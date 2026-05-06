@@ -3,3 +3,6 @@ __pycache__/
 .DS_Store
 data/
 models/
+.continue
+.env
+.tmp

@@ -1,0 +1,42 @@
+# =============================================================================
+# high_throughput.yaml — Maximum-Throughput Resource Profile
+# =============================================================================
+# Target: GPUs with ≥40 GB VRAM (e.g., A100, H100, MI300X) or multi-GPU nodes.
+# Strategy: Maximise per-device batch size, minimise gradient accumulation,
+#   favour bfloat16 precision, use fused optimisers, and scale dataloader
+#   workers for maximum training throughput.
+#
+# Usage:
+#   accelerate launch --config_file configs/high_throughput.yaml src/train.py --data_path ./data/processed/gpt2_python_dataset
+# =============================================================================
+
+# ---------------------------------------------------------------------------
+# Compute environment
+# ---------------------------------------------------------------------------
+compute_environment: LOCAL_MACHINE
+deepspeed_config: {}
+distributed_type: 'NO'                 # Set to 'MULTI_GPU' for multi-device runs
+downcast_bf16: 'no'
+
+# ---------------------------------------------------------------------------
+# Precision & memory optimizations
+# ---------------------------------------------------------------------------
+mixed_precision: 'bf16'                # bfloat16 — best for Ampere+ GPUs
+dynamo_backend: 'NO'                   # TorchDynamo disabled for stability
+
+# ---------------------------------------------------------------------------
+# GPU configuration
+# ---------------------------------------------------------------------------
+gpu_ids: '0'                           # Set to '0,1,2,3,...' for multi-GPU
+machine_rank: 0
+main_process_ip: null
+main_process_port: null
+main_training_function: main
+num_machines: 1
+num_processes: 1
+rdzv_backend: static
+same_network: true
+tpu_env: []
+tpu_use_cluster: false
+tpu_use_sudo: false
+use_cpu: false

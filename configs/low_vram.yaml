@@ -1,0 +1,48 @@
+# =============================================================================
+# low_vram.yaml — Constrained Memory Resource Profile
+# =============================================================================
+# Target: GPUs with ≤16 GB VRAM (e.g., T4, RTX 3060, consumer GPUs).
+# Strategy: Maximise effective batch size via gradient accumulation while
+#   keeping per-device batch small; enable gradient checkpointing and fp16
+#   to fit within tight memory budgets.
+#
+# Usage:
+#   accelerate launch --config_file configs/low_vram.yaml src/train.py --data_path ./data/processed/gpt2_python_dataset
+# =============================================================================
+
+# ---------------------------------------------------------------------------
+# Compute environment
+# ---------------------------------------------------------------------------
+compute_environment: LOCAL_MACHINE
+deepspeed_config: {}
+distributed_type: 'NO'                 # Single GPU; change to 'MULTI_GPU' if >1 device
+downcast_bf16: 'no'
+
+# ---------------------------------------------------------------------------
+# Precision & memory optimizations
+# ---------------------------------------------------------------------------
+mixed_precision: 'fp16'                # fp16 AMP — vital for ≤16 GB VRAM
+dynamo_backend: 'NO'                   # TorchDynamo disabled for stability
+
+# ---------------------------------------------------------------------------
+# Gradient checkpointing (injected via TrainingConfig.to_training_arguments)
+# ---------------------------------------------------------------------------
+# Note: gradient_checkpointing is enabled inside HardwareConfig.from_resource_tier(LOW_VRAM)
+# and passed through kwargs. This YAML covers the *accelerate*-level settings.
+
+# ---------------------------------------------------------------------------
+# GPU configuration
+# ---------------------------------------------------------------------------
+gpu_ids: '0'                           # Single GPU index
+machine_rank: 0
+main_process_ip: null
+main_process_port: null
+main_training_function: main
+num_machines: 1
+num_processes: 1
+rdzv_backend: static
+same_network: true
+tpu_env: []
+tpu_use_cluster: false
+tpu_use_sudo: false
+use_cpu: false
