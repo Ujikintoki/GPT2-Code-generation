@@ -1,119 +1,119 @@
-# Domain‑Adaptive Fine‑Tuning of GPT‑2 for Python Code Generation
+# Domain-Adaptive Fine-Tuning of GPT-2 for Python Code Generation
 
-This repository contains the implementation of **Domain‑Adaptive Fine‑Tuning (DAFT)** of OpenAI's GPT‑2 (117M) for semantically aware **Python code generation**.  
-The project uses the **CodeSearchNet** corpus, HuggingFace's `transformers` and `datasets` libraries, and modern parameter‑efficient fine‑tuning techniques to adapt a general‑purpose language model to the Python programming domain.
+This repository contains the implementation of Domain-Adaptive Fine-Tuning of OpenAI's GPT-2 (117M) specifically for semantically aware Python code generation. 
 
-## Motivation
-
-While large pre‑trained models such as Codex or StarCoder have set new standards in code synthesis, smaller models fine‑tuned on curated domain‑specific corpora often reach competitive performance at a fraction of the computational cost.  
-This implementation demonstrates how **domain‑adaptive fine‑tuning** of a compact decoder‑only model can yield a lightweight yet effective Python‑code assistant, suitable for resource‑constrained environments or educational tooling.
+Utilizing the Python subset of the CodeSearchNet corpus and Hugging Face ecosystems, this project demonstrates how to transform a general-purpose language model into a specialized domain assistant. Rather than relying on brute-force scaling, this methodology emphasizes **strict constraints** and **learning efficiency**, exploring how effectively a standard, medium-sized causal language model can internalize the structural and syntactic priors of Python.
 
 ## Project Structure
 
-```
+```text
 .
-├── configs
+├── configs/                     # Resource-oriented training configurations
 │   ├── high_throughput.yaml
 │   └── low_vram.yaml
-├── readme.md
+├── output/                      # Generated artifacts (ignored in version control)
+│   ├── case_studies/            # Qualitative code generation comparisons
+│   └── plots/                   # Quantitative ablation study visualizations
+├── src/                         # Core library and source code
+│   ├── __init__.py
+│   ├── config.py                # Typed dataclasses for global hyperparameters
+│   ├── data_preprocess.py       # Tokenization, whitespace preservation, and chunking
+│   ├── train.py                 # Core Causal LM training and evaluation loop
+│   ├── eval/                    # Evaluation modules
+│   │   ├── __init__.py
+│   │   ├── eval_humaneval.py    # Standardized code generation evaluation
+│   │   ├── eval_model.py        # General model metric computation
+│   │   └── generate_cases.py    # Qualitative case study generator
+│   └── utils/
+│       ├── __init__.py
+│       └── logger.py            # Centralized formatting and logging utility
+├── scripts/                     # Automation shell scripts
+│   └── run_ablation.sh          # Orchestrates data scaling and layer ablation runs
 ├── requirements.txt
-├── scripts
-│   └── run_ablation.sh
-└── src
-    ├── __init__.py
-    ├── config.py
-    ├── data_preprocess.py
-    ├── eval
-    │   ├── __init__.py
-    │   ├── eval_humaneval.py
-    │   ├── eval_model.py
-    │   └── generate_cases.py
-    ├── train.py
-    └── utils
-        ├── __init__.py
-        └── logger.py
+└── README.md
 ```
 
-## Setup
+## Development & Execution Workflow
 
-### 1. Create a virtual environment (recommended)
+This project adopts a robust, hardware-agnostic workflow designed for seamless transition between local development and remote computational clusters:
+
+- **Local Development:** Code structuring, pipeline engineering, and unit testing are conducted in a local development environment.
+- **Version Control:** Changes are versioned and pushed to the repository.
+- **Remote Execution:** The repository is cloned onto remote compute servers (e.g., high-performance clusters). Execution dynamically adapts to the available hardware using predefined resource profiles:
+  - `low_vram` — for constrained memory environments using gradient accumulation and mixed precision.
+  - `high_throughput` — for scaled environments with abundant resources.
+
+## Setup & Installation
+
+### 1. Create a virtual environment
 
 ```bash
 python3 -m venv venv
-source venv/bin/activate  # Linux/macOS
-# or .\venv\Scripts\activate on Windows
+source venv/bin/activate
 ```
 
-### 2. Install PyTorch (GPU users only)
+### 2. Install dependencies
 
-If you have an NVIDIA GPU, **first** install the CUDA‑enabled PyTorch build.  
-For CUDA 11.8:
-
-```bash
-pip install torch>=2.0.0 --index-url https://download.pytorch.org/whl/cu118
-```
-
-For other configurations, refer to [https://pytorch.org/get‑started/locally/](https://pytorch.org/get-started/locally/).
-
-### 3. Install remaining dependencies
+Install the core NLP and Machine Learning dependencies via the provided requirements file:
 
 ```bash
 pip install -r requirements.txt
 ```
 
+> **Note:** Ensure you have the appropriate CUDA-enabled PyTorch version installed for your specific hardware accelerator.
+
 ## Usage
 
-### Fine‑tune the model
+### 1. Data Preprocessing
+
+Process the raw CodeSearchNet Python subset into tokenized, chunked formats suitable for autoregressive training. This script preserves crucial Python whitespace semantics.
 
 ```bash
-python
+python -m src.data_preprocess
 ```
 
-By default, the script:
-- Loads the **CodeSearchNet Python** subset.
-- Uses **GPT‑2 (117M)** as the base model.
-- Trains for 3 epochs with a small learning rate and mixed precision (fp16 where available).
+### 2. Model Fine-Tuning
 
-You can override any of the HuggingFace `TrainingArguments` or the LoRA hyper‑parameters via the `config` dictionary inside `config.py`.
-
-### Generate code snippets (interactive demo)
+Launch the training pipeline. You can specify the resource profile depending on your current computational environment:
 
 ```bash
-python test.py
+# Example using a low VRAM profile via Hugging Face Accelerate
+accelerate launch src/train.py --config configs/low_vram.yaml
 ```
 
-The script prompts you for a natural‑language instruction and outputs a Python snippet using the fine‑tuned model.
+### 3. Ablation Studies
 
-### Evaluate with HumanEval‑style metric
+To automatically run the data scaling law and capacity ablation studies across different fractions of the dataset:
 
 ```bash
-python evaluate.py
+bash scripts/run_ablation.sh
 ```
 
-Computes the `pass@k` metric on a set of held‑out prompts using the `evaluate` library.
+### 4. Evaluation & Case Studies
 
-## Technical Highlights
+Compute quantitative metrics (e.g., Perplexity and HumanEval pass rates) and generate qualitative text comparisons:
 
-- **Domain‑Adaptive Fine‑Tuning (DAFT)** – the model is first pre‑trained on a large Python corpus before being used for instruction‑following tasks, as proposed in the foundational DAFT paper by *Doe et al. (2024)*.
+```bash
+# Generate qualitative baseline vs. fine-tuned comparisons
+python -m src.eval.generate_cases
 
-## Dependencies
+# Run structured evaluations
+python -m src.eval.eval_humaneval
+```
 
-| Package      | Version       | Purpose                                      |
-|-------------|---------------|----------------------------------------------|
-| torch       | ≥ 2.0.0       | Deep‑learning framework                      |
-| transformers| ≥ 4.30.0      | Model hub & training utilities               |
-| datasets    | ≥ 2.14.0      | Streaming data‑loading & caching             |
-| accelerate  | ≥ 0.20.0      | Hardware‑agnostic distributed training       |
-| evaluate    | ≥ 0.4.0       | Metric computation (HumanEval pass@k)        |
+---
 
-For a development setup, also install `matplotlib`, `seaborn`, `pandas`, and `jupyter` for analysis.
+## Experimental Results
 
-## License
+> **Placeholder:** Researchers should refer to the generated figures in `output/plots/` for detailed empirical findings.
 
-This project is released under the MIT License. See [LICENSE](./LICENSE) for details.
+- **Data Scaling & Learning Efficiency:** Visualized in `data_scaling_full.png` and `data_scaling_dual.png`.
+- **Model Capacity Constraints:** Visualized in `model_capacity.png` and `model_capacity_dual.png`.
+- **Architectural Ablations:** Visualized in `layer_ablation.png`.
+
+---
 
 ## Acknowledgements
 
-- HuggingFace 🤗 for the Transformers, Datasets, Accelerate, and Evaluate libraries.
-- CodeSearchNet corpus by Google Research.
-- The authors of LoRA (Hu et al.) and QLoRA (Dettmers et al.) for their pioneering work on parameter‑efficient fine‑tuning.
+- [Hugging Face](https://huggingface.co) for providing the `transformers`, `datasets`, and `accelerate` libraries.
+- [CodeSearchNet](https://github.com/github/CodeSearchNet) for the Python training corpus.
