@@ -105,11 +105,20 @@ python -m src.eval.eval_humaneval
 
 ## Experimental Results
 
-> **Placeholder:** Researchers should refer to the generated figures in `output/plots/` for detailed empirical findings.
+### Data Scaling & Learning Efficiency
+![Data Scaling Dual](output/plots/data_scaling_dual.png)
 
-- **Data Scaling & Learning Efficiency:** Visualized in `data_scaling_full.png` and `data_scaling_dual.png`.
-- **Model Capacity Constraints:** Visualized in `model_capacity.png` and `model_capacity_dual.png`.
-- **Architectural Ablations:** Visualized in `layer_ablation.png`.
+> Additional scaling analysis is also available in `data_scaling_full.png`.
+
+### Model Capacity Constraints
+![Model Capacity Dual](output/plots/model_capacity_dual.png)
+
+> Additional capacity analysis is also available in `model_capacity.png`.
+
+### Architectural Ablations
+![Layer Ablation Dual](output/plots/layer_ablation_dual.png)
+
+> Additional ablation analysis is also available in `layer_ablation.png`.
 
 ---
 
